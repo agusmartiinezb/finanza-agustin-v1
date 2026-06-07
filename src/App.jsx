@@ -20,11 +20,10 @@ const CUENTAS_DEFAULT = [
   { id: 'cash_usd', nombre: 'Cash USD', moneda: 'USD', tipo: 'liquido' },
 ];
 
-const MEDIOS_PAGO = ['Visa', 'Master', 'MercadoPago', 'Efectivo', 'Débito'];
+const MEDIOS_PAGO = ['Visa', 'Master', 'MercadoPago', 'MercadoPago Crédito', 'Efectivo', 'Débito'];
 
 const CATEGORIAS_EGRESO = {
   'Crédito Hipotecario': ['Cuota mensual'],
-  'Tarjeta (cuotas)': ['Cuota tarjeta'],
   'Servicios e Impuestos': ['Ecogas', 'Edemsa', 'Aysam', 'Inmobiliario', 'Municipalidad', 'Internet', 'Expensas', 'Seguro', 'ABL/AFIP', 'Otros'],
   Supermercado: ['Compra grande', 'Compra chica', 'Verdulería', 'Carnicería'],
   'Comida afuera': ['Restaurante', 'Delivery', 'Almuerzo trabajo', 'Café'],
