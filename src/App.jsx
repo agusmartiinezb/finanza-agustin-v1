@@ -20,15 +20,16 @@ const CUENTAS_DEFAULT = [
   { id: 'cash_usd', nombre: 'Cash USD', moneda: 'USD', tipo: 'liquido' },
 ];
 
-const MEDIOS_PAGO = ['Visa', 'Master', 'MercadoPago', 'MercadoPago Crédito', 'Efectivo', 'Débito'];
+const MEDIOS_PAGO = ['Visa', 'Master', 'MercadoPago', 'Efectivo', 'Débito'];
 
 const CATEGORIAS_EGRESO = {
   'Crédito Hipotecario': ['Cuota mensual'],
+  'Tarjeta (cuotas)': ['Cuota tarjeta'],
   'Servicios e Impuestos': ['Ecogas', 'Edemsa', 'Aysam', 'Inmobiliario', 'Municipalidad', 'Internet', 'Expensas', 'Seguro', 'ABL/AFIP', 'Otros'],
   Supermercado: ['Compra grande', 'Compra chica', 'Verdulería', 'Carnicería'],
   'Comida afuera': ['Restaurante', 'Delivery', 'Almuerzo trabajo', 'Café'],
   'Ocio / Eventos': ['Bar', 'Boliche', 'Cine/Teatro', 'Eventos'],
-  Auto: ['Combustible', 'Mantenimiento/Service', 'Seguro', 'Patente', 'Lavado', 'Estacionamiento'],
+  Auto: ['Combustible', 'Mantenimiento/Service', 'Seguro', 'Patente', 'Impuestos', 'Lavado', 'Estacionamiento'],
   Fitness: ['Gimnasio', 'Fútbol', 'Suplementos', 'Equipamiento'],
   Salud: ['Médico/Consultas', 'Farmacia', 'Estética', 'Obra social'],
   'Cuidado personal': ['Peluquería', 'Productos cuidado'],
@@ -764,18 +765,50 @@ function Field({ label, children, t }) {
 function Movimientos({ movimientos, eliminar, actualizar, config, t }) {
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroMes, setFiltroMes] = useState(mesAnio(hoy()));
+  const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroSubcategoria, setFiltroSubcategoria] = useState('todas');
+  const [filtroMedioPago, setFiltroMedioPago] = useState('todos');
   const [editando, setEditando] = useState(null);
 
   const filtrados = useMemo(() => movimientos
     .filter((m) => filtroTipo === 'todos' || m.tipo === filtroTipo)
     .filter((m) => filtroMes === 'todos' || mesAnio(m.fecha) === filtroMes)
-    .sort((a, b) => b.fecha.localeCompare(a.fecha)), [movimientos, filtroTipo, filtroMes]);
+    .filter((m) => filtroCategoria === 'todas' || m.categoria === filtroCategoria)
+    .filter((m) => filtroSubcategoria === 'todas' || m.subcategoria === filtroSubcategoria)
+    .filter((m) => filtroMedioPago === 'todos' || m.medioPago === filtroMedioPago)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha)), [movimientos, filtroTipo, filtroMes, filtroCategoria, filtroSubcategoria, filtroMedioPago]);
 
   const mesesDisponibles = useMemo(() => Array.from(new Set(movimientos.map((m) => mesAnio(m.fecha)))).sort().reverse(), [movimientos]);
 
+  // Categorías presentes en los movimientos cargados
+  const categoriasDisponibles = useMemo(() => Array.from(new Set(movimientos.map((m) => m.categoria).filter(Boolean))).sort(), [movimientos]);
+
+  // Subcategorías: dependen de la categoría elegida (si hay una)
+  const subcategoriasDisponibles = useMemo(() => {
+    const base = filtroCategoria === 'todas' ? movimientos : movimientos.filter((m) => m.categoria === filtroCategoria);
+    return Array.from(new Set(base.map((m) => m.subcategoria).filter(Boolean))).sort();
+  }, [movimientos, filtroCategoria]);
+
+  // Total de lo filtrado (en ARS), útil para revisar gastos puntuales
+  const totalFiltrado = useMemo(() => filtrados.reduce((s, m) => {
+    if (m.tipo === 'egreso') return s + montoEnARS(m, config);
+    if (m.tipo === 'ingreso') return s - montoEnARS(m, config);
+    return s;
+  }, 0), [filtrados, config]);
+
+  const hayFiltroActivo = filtroTipo !== 'todos' || filtroMes !== 'todos' || filtroCategoria !== 'todas' || filtroSubcategoria !== 'todas' || filtroMedioPago !== 'todos';
+
+  const limpiarFiltros = () => {
+    setFiltroTipo('todos'); setFiltroMes('todos'); setFiltroCategoria('todas'); setFiltroSubcategoria('todas'); setFiltroMedioPago('todos');
+  };
+
   return (
     <div className="space-y-3">
-      <h3 className={`text-base font-semibold ${t.text} px-1`}>Movimientos ({filtrados.length})</h3>
+      <div className="flex items-center justify-between px-1">
+        <h3 className={`text-base font-semibold ${t.text}`}>Movimientos ({filtrados.length})</h3>
+        {hayFiltroActivo && <button onClick={limpiarFiltros} className="text-xs text-blue-500 font-medium">Limpiar filtros</button>}
+      </div>
+
       <div className="grid grid-cols-2 gap-2">
         <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className={`px-3 py-2 border rounded-lg text-sm ${t.input}`}>
           <option value="todos">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option><option value="transferencia">Transferencias</option>
@@ -783,7 +816,24 @@ function Movimientos({ movimientos, eliminar, actualizar, config, t }) {
         <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} className={`px-3 py-2 border rounded-lg text-sm ${t.input}`}>
           <option value="todos">Todos los meses</option>{mesesDisponibles.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
+        <select value={filtroCategoria} onChange={(e) => { setFiltroCategoria(e.target.value); setFiltroSubcategoria('todas'); }} className={`px-3 py-2 border rounded-lg text-sm ${t.input}`}>
+          <option value="todas">Todas las categorías</option>{categoriasDisponibles.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={filtroSubcategoria} onChange={(e) => setFiltroSubcategoria(e.target.value)} className={`px-3 py-2 border rounded-lg text-sm ${t.input}`}>
+          <option value="todas">Todas las subcat.</option>{subcategoriasDisponibles.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={filtroMedioPago} onChange={(e) => setFiltroMedioPago(e.target.value)} className={`px-3 py-2 border rounded-lg text-sm ${t.input} col-span-2`}>
+          <option value="todos">Todos los medios de pago</option>{MEDIOS_PAGO.map((mp) => <option key={mp} value={mp}>{mp}</option>)}
+        </select>
       </div>
+
+      {hayFiltroActivo && filtrados.length > 0 && (
+        <div className={`${t.surface} rounded-lg px-3 py-2 flex items-center justify-between`}>
+          <span className={`text-xs ${t.textMuted}`}>Total filtrado ({filtrados.length} mov.)</span>
+          <span className={`text-sm font-bold ${totalFiltrado >= 0 ? 'text-red-500' : 'text-green-500'}`}>{fmtMoney(Math.abs(totalFiltrado))}</span>
+        </div>
+      )}
+
       <div className="space-y-2">
         {filtrados.length === 0 && <div className={`text-center py-8 ${t.textSoft} text-sm`}>No hay movimientos</div>}
         {filtrados.map((m) => <MovimientoCard key={m.id} mov={m} eliminar={eliminar} config={config} onEdit={() => setEditando(m)} t={t} />)}
