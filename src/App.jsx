@@ -199,11 +199,11 @@ export default function FinanzasApp() {
     setPatrimonio((prev) => ({ ...prev, [cuentaId]: saldo }));
   };
 
-  const guardarSnapshot = (totalARS, totalUSD) => {
+  const guardarSnapshot = (totalARS, totalUSD, financieroARS) => {
     const mesActual = mesAnio(hoy());
     setSnapshots((prev) => {
       const sinEsteMes = prev.filter((s) => s.mes !== mesActual);
-      return [...sinEsteMes, { mes: mesActual, fecha: hoy(), totalARS, totalUSD, detalle: { ...patrimonio } }].sort((a, b) => a.mes.localeCompare(b.mes));
+      return [...sinEsteMes, { mes: mesActual, fecha: hoy(), totalARS, totalUSD, financieroARS, detalle: { ...patrimonio } }].sort((a, b) => a.mes.localeCompare(b.mes));
     });
   };
 
@@ -424,28 +424,48 @@ function KPI({ label, valor, color = 'slate', esPct = false, t }) {
 }
 
 // ============ PATRIMONIO NETO ============
+// Bienes físicos: cada uno con su valor y moneda
+const BIENES_FISICOS = [
+  { id: 'depa', nombre: 'Departamento', moneda: 'USD' },
+  { id: 'auto', nombre: 'Auto', moneda: 'USD' },
+];
+
 function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, snapshots, guardarSnapshot, agregar, t }) {
   const [msg, setMsg] = useState('');
 
-  const totalARS = useMemo(() => {
-    return CUENTAS_DEFAULT.reduce((s, c) => {
-      const saldo = patrimonio[c.id] || 0;
-      const enARS = c.moneda === 'USD' ? saldo * config.cotizacionDolar : saldo;
-      return s + enARS;
-    }, 0);
-  }, [patrimonio, config.cotizacionDolar]);
+  const dolar = config.cotizacionDolar || 1;
+  const valorUVA = config.valorUVA || 0;
 
-  const totalUSD = totalARS / config.cotizacionDolar;
-
+  // ===== ACTIVOS =====
   const liquido = useMemo(() => CUENTAS_DEFAULT.filter((c) => c.tipo === 'liquido').reduce((s, c) => {
     const saldo = patrimonio[c.id] || 0;
-    return s + (c.moneda === 'USD' ? saldo * config.cotizacionDolar : saldo);
-  }, 0), [patrimonio, config.cotizacionDolar]);
+    return s + (c.moneda === 'USD' ? saldo * dolar : saldo);
+  }, 0), [patrimonio, dolar]);
 
-  const invertido = totalARS - liquido;
+  const invertido = useMemo(() => CUENTAS_DEFAULT.filter((c) => c.tipo === 'invertido').reduce((s, c) => {
+    const saldo = patrimonio[c.id] || 0;
+    return s + (c.moneda === 'USD' ? saldo * dolar : saldo);
+  }, 0), [patrimonio, dolar]);
+
+  const bienesFisicos = useMemo(() => BIENES_FISICOS.reduce((s, b) => {
+    const valor = patrimonio[b.id] || 0;
+    return s + (b.moneda === 'USD' ? valor * dolar : valor);
+  }, 0), [patrimonio, dolar]);
+
+  // ===== PASIVO: deuda hipotecaria en UVAs =====
+  const uvasDeuda = patrimonio['hipoteca_uvas'] || 0;
+  const deudaHipotecaARS = uvasDeuda * valorUVA;
+
+  // ===== TOTALES =====
+  const activosARS = liquido + invertido + bienesFisicos;
+  const totalARS = activosARS - deudaHipotecaARS;
+  const totalUSD = totalARS / dolar;
 
   // ===== CONCILIACIÓN =====
-  // Variación esperada por flujos (todos los movimientos): ingresos - egresos
+  // Solo concilia la parte FINANCIERA (líquido + invertido), que es lo que mueven los flujos.
+  // Bienes físicos y deuda no entran porque no se mueven con ingresos/egresos diarios.
+  const financieroARS = liquido + invertido;
+
   const flujoNeto = useMemo(() => {
     return movimientos.reduce((s, m) => {
       if (m.tipo === 'ingreso') return s + montoEnARS(m, config);
@@ -454,23 +474,21 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
     }, 0);
   }, [movimientos, config]);
 
-  // Snapshot anterior (último guardado)
   const snapshotPrevio = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-  const patrimonioPrevio = snapshotPrevio ? snapshotPrevio.totalARS : null;
+  const financieroPrevio = snapshotPrevio ? (snapshotPrevio.financieroARS ?? null) : null;
 
-  // Conciliación: solo si hay un snapshot previo para comparar
   const conciliacion = useMemo(() => {
-    if (patrimonioPrevio === null) return null;
-    const esperado = patrimonioPrevio + flujoNeto;
-    const real = totalARS;
+    if (financieroPrevio === null) return null;
+    const esperado = financieroPrevio + flujoNeto;
+    const real = financieroARS;
     const diferencia = real - esperado;
     return { esperado, real, diferencia, abs: Math.abs(diferencia) };
-  }, [patrimonioPrevio, flujoNeto, totalARS]);
+  }, [financieroPrevio, flujoNeto, financieroARS]);
 
   const umbral = config.umbralConciliacion || 50000;
 
   const handleGuardarSnapshot = () => {
-    guardarSnapshot(totalARS, totalUSD);
+    guardarSnapshot(totalARS, totalUSD, financieroARS);
     setMsg('✓ Foto del mes guardada');
     setTimeout(() => setMsg(''), 2000);
   };
@@ -480,13 +498,8 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
     const dif = conciliacion.diferencia;
     agregar({
       tipo: dif > 0 ? 'ingreso' : 'egreso',
-      fecha: hoy(),
-      monto: Math.abs(dif),
-      moneda: 'ARS',
-      cotizacion: null,
-      categoria: dif > 0 ? 'Otros' : 'Otros',
-      subcategoria: 'Ajuste conciliación',
-      descripcion: 'Ajuste automático de conciliación',
+      fecha: hoy(), monto: Math.abs(dif), moneda: 'ARS', cotizacion: null,
+      categoria: 'Otros', subcategoria: 'Ajuste conciliación', descripcion: 'Ajuste automático de conciliación',
     });
     setMsg('✓ Ajuste registrado');
     setTimeout(() => setMsg(''), 2000);
@@ -496,31 +509,47 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
     <div className="space-y-3">
       <h3 className={`text-base font-semibold ${t.text} px-1`}>Patrimonio neto</h3>
 
-      {/* Total destacado */}
+      {/* Total destacado: USD y ARS */}
       <div className="bg-blue-600 rounded-xl p-4 text-center text-white">
-        <div className="text-xs opacity-80">Patrimonio total</div>
-        <div className="text-3xl font-bold mt-1">{fmtMoney(totalARS)}</div>
-        <div className="text-sm opacity-90 mt-0.5">≈ {fmtMoney(totalUSD, 'USD')}</div>
+        <div className="text-xs opacity-80">Patrimonio neto total</div>
+        <div className="text-3xl font-bold mt-1">{fmtMoney(totalUSD, 'USD')}</div>
+        <div className="text-sm opacity-90 mt-0.5">{fmtMoney(totalARS)}</div>
       </div>
 
-      {/* Líquido vs Invertido */}
+      {/* Desglose en 4: líquido, invertido, bienes, deuda */}
       <div className="grid grid-cols-2 gap-2">
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Líquido</div>
-          <div className={`text-base font-bold ${t.text}`}>{fmtMoney(liquido)}</div>
-          <div className={`text-xs ${t.textSoft}`}>{totalARS > 0 ? fmtPct(liquido / totalARS) : '-'}</div>
+          <div className={`text-base font-bold ${t.text}`}>{fmtMoneyShort(liquido)}</div>
         </div>
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Invertido</div>
-          <div className={`text-base font-bold ${t.text}`}>{fmtMoney(invertido)}</div>
-          <div className={`text-xs ${t.textSoft}`}>{totalARS > 0 ? fmtPct(invertido / totalARS) : '-'}</div>
+          <div className={`text-base font-bold ${t.text}`}>{fmtMoneyShort(invertido)}</div>
+        </div>
+        <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
+          <div className={`text-xs ${t.textMuted}`}>Bienes físicos</div>
+          <div className={`text-base font-bold ${t.text}`}>{fmtMoneyShort(bienesFisicos)}</div>
+        </div>
+        <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
+          <div className={`text-xs ${t.textMuted}`}>Deuda hipoteca</div>
+          <div className="text-base font-bold text-red-500">−{fmtMoneyShort(deudaHipotecaARS)}</div>
         </div>
       </div>
 
-      {/* Saldos por cuenta */}
+      {/* Valor UVA */}
+      <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3 flex items-center justify-between`}>
+        <div>
+          <div className={`text-sm font-semibold ${t.text}`}>Valor UVA</div>
+          <div className={`text-xs ${t.textSoft}`}>Actualizalo desde el resumen del banco</div>
+        </div>
+        <input type="number" inputMode="decimal" value={config.valorUVA || ''}
+          onChange={(e) => setConfig({ ...config, valorUVA: Number(e.target.value) || 0 })}
+          placeholder="0" className={`w-24 px-2 py-1.5 text-right border rounded-lg text-sm ${t.input}`} />
+      </div>
+
+      {/* Cuentas financieras */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
-        <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Saldos por cuenta</h4>
-        <p className={`text-xs ${t.textSoft} mb-3`}>Actualizá cuánto tenés hoy en cada cuenta</p>
+        <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Cuentas (líquido + invertido)</h4>
         <div className="space-y-2">
           {CUENTAS_DEFAULT.map((c) => (
             <div key={c.id} className="flex items-center justify-between gap-2">
@@ -528,15 +557,50 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
                 <span className={`text-sm ${t.surfaceText}`}>{c.nombre}</span>
                 <span className={`text-xs ml-1.5 px-1.5 py-0.5 rounded-full ${c.tipo === 'invertido' ? 'bg-purple-500/15 text-purple-500' : 'bg-blue-500/15 text-blue-500'}`}>{c.moneda}</span>
               </div>
-              <input
-                type="number" inputMode="decimal" value={patrimonio[c.id] || ''}
+              <input type="number" inputMode="decimal" value={patrimonio[c.id] || ''}
                 onChange={(e) => actualizar(c.id, Number(e.target.value) || 0)}
-                placeholder="0"
-                className={`w-28 px-2 py-1.5 text-right border rounded-lg text-sm ${t.input}`}
-              />
+                placeholder="0" className={`w-28 px-2 py-1.5 text-right border rounded-lg text-sm ${t.input}`} />
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Bienes físicos */}
+      <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
+        <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Bienes físicos</h4>
+        <p className={`text-xs ${t.textSoft} mb-2`}>Valor de mercado actual del bien</p>
+        <div className="space-y-2">
+          {BIENES_FISICOS.map((b) => (
+            <div key={b.id} className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <span className={`text-sm ${t.surfaceText}`}>{b.nombre}</span>
+                <span className="text-xs ml-1.5 px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-500">{b.moneda}</span>
+              </div>
+              <input type="number" inputMode="decimal" value={patrimonio[b.id] || ''}
+                onChange={(e) => actualizar(b.id, Number(e.target.value) || 0)}
+                placeholder="0" className={`w-28 px-2 py-1.5 text-right border rounded-lg text-sm ${t.input}`} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Deuda hipotecaria */}
+      <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
+        <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Deuda hipotecaria</h4>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <span className={`text-sm ${t.surfaceText}`}>Saldo pendiente</span>
+            <span className="text-xs ml-1.5 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-500">UVAs</span>
+          </div>
+          <input type="number" inputMode="decimal" value={patrimonio['hipoteca_uvas'] || ''}
+            onChange={(e) => actualizar('hipoteca_uvas', Number(e.target.value) || 0)}
+            placeholder="0" className={`w-28 px-2 py-1.5 text-right border rounded-lg text-sm ${t.input}`} />
+        </div>
+        {uvasDeuda > 0 && valorUVA > 0 && (
+          <div className={`text-xs ${t.textSoft} mt-2 text-right`}>
+            {uvasDeuda.toLocaleString('es-AR')} UVA × ${valorUVA} = {fmtMoney(deudaHipotecaARS)} ({fmtMoney(deudaHipotecaARS / dolar, 'USD')})
+          </div>
+        )}
       </div>
 
       {/* Conciliación */}
@@ -550,10 +614,11 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
               className={`w-20 px-1.5 py-1 text-right border rounded text-xs ${t.input}`} />
           </div>
         </div>
+        <p className={`text-xs ${t.textSoft} mb-2`}>Concilia solo lo financiero (líquido + invertido), que es lo que mueven tus ingresos y egresos.</p>
 
         {conciliacion === null ? (
           <p className={`text-xs ${t.textSoft}`}>
-            Guardá una primera foto del patrimonio para empezar a conciliar. La próxima vez que vuelvas, la app comparará tus saldos reales contra lo esperado según tus ingresos y egresos.
+            Guardá una primera foto para empezar a conciliar. La próxima vez la app compara tus cuentas reales contra lo esperado según ingresos y egresos.
           </p>
         ) : (
           <div className="space-y-2">
@@ -562,14 +627,13 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
               <span className={t.text}>{fmtMoney(conciliacion.esperado)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className={t.textMuted}>Real (saldos cargados)</span>
+              <span className={t.textMuted}>Real (cuentas cargadas)</span>
               <span className={t.text}>{fmtMoney(conciliacion.real)}</span>
             </div>
             <div className={`flex justify-between text-sm font-semibold pt-2 border-t ${t.divide}`}>
               <span className={t.text}>Diferencia</span>
               <span className={conciliacion.abs <= umbral ? 'text-green-500' : 'text-red-500'}>{fmtMoney(conciliacion.diferencia)}</span>
             </div>
-
             {conciliacion.abs <= umbral ? (
               <div className="bg-green-500/10 rounded-lg p-2.5 flex items-center gap-2">
                 <Check size={16} className="text-green-500 shrink-0" />
@@ -579,7 +643,7 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
             ) : (
               <div className="bg-red-500/10 rounded-lg p-2.5 flex items-start gap-2">
                 <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                <span className="text-xs text-red-600">Diferencia grande ({fmtMoney(conciliacion.abs)}). Probablemente falta cargar un movimiento importante. Revisá antes de ajustar.</span>
+                <span className="text-xs text-red-600">Diferencia grande ({fmtMoney(conciliacion.abs)}). Probablemente falta cargar un movimiento. Revisá antes de ajustar.</span>
               </div>
             )}
           </div>
@@ -603,7 +667,7 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
                 <div key={s.mes} className={`flex items-center justify-between text-sm py-1 border-b ${t.divide} last:border-0`}>
                   <span className={t.surfaceText}>{s.mes}</span>
                   <div className="text-right">
-                    <span className={`font-medium ${t.text}`}>{fmtMoney(s.totalARS)}</span>
+                    <span className={`font-medium ${t.text}`}>{fmtMoney(s.totalUSD, 'USD')}</span>
                     {variacion !== null && <span className={`text-xs ml-2 ${variacion >= 0 ? 'text-green-500' : 'text-red-500'}`}>{variacion >= 0 ? '+' : ''}{fmtMoneyShort(variacion)}</span>}
                   </div>
                 </div>
