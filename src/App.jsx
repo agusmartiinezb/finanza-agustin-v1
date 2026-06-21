@@ -516,23 +516,27 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
         <div className="text-sm opacity-90 mt-0.5">{fmtMoney(totalARS)}</div>
       </div>
 
-      {/* Desglose en 4: líquido, invertido, bienes, deuda */}
+     {/* Desglose en 4: líquido, invertido, bienes, deuda */}
       <div className="grid grid-cols-2 gap-2">
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Líquido</div>
-          <div className={`text-base font-bold ${t.text}`}>{fmtMoneyShort(liquido)}</div>
+          <div className={`text-base font-bold ${t.text}`}>{fmtMoney(liquido / dolar, 'USD')}</div>
+          <div className={`text-xs ${t.textSoft}`}>{fmtMoneyShort(liquido)}</div>
         </div>
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Invertido</div>
-          <div className={`text-base font-bold ${t.text}`}>{fmtMoneyShort(invertido)}</div>
+          <div className={`text-base font-bold ${t.text}`}>{fmtMoney(invertido / dolar, 'USD')}</div>
+          <div className={`text-xs ${t.textSoft}`}>{fmtMoneyShort(invertido)}</div>
         </div>
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Bienes físicos</div>
-          <div className={`text-base font-bold ${t.text}`}>{fmtMoneyShort(bienesFisicos)}</div>
+          <div className={`text-base font-bold ${t.text}`}>{fmtMoney(bienesFisicos / dolar, 'USD')}</div>
+          <div className={`text-xs ${t.textSoft}`}>{fmtMoneyShort(bienesFisicos)}</div>
         </div>
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Deuda hipoteca</div>
-          <div className="text-base font-bold text-red-500">−{fmtMoneyShort(deudaHipotecaARS)}</div>
+          <div className="text-base font-bold text-red-500">−{fmtMoney(deudaHipotecaARS / dolar, 'USD')}</div>
+          <div className={`text-xs ${t.textSoft}`}>−{fmtMoneyShort(deudaHipotecaARS)}</div>
         </div>
       </div>
 
