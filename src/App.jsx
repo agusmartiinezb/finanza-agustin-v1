@@ -20,15 +20,20 @@ const CUENTAS_DEFAULT = [
   { id: 'cash_usd', nombre: 'Cash USD', moneda: 'USD', tipo: 'liquido' },
 ];
 
-const MEDIOS_PAGO = ['Visa', 'Master', 'MercadoPago', 'Efectivo', 'Débito'];
+const BIENES_FISICOS = [
+  { id: 'depa', nombre: 'Departamento', moneda: 'USD' },
+  { id: 'auto', nombre: 'Auto', moneda: 'USD' },
+];
+
+const MEDIOS_PAGO = ['Visa', 'Master', 'MercadoPago', 'MercadoPago Crédito', 'Efectivo', 'Débito'];
 
 const CATEGORIAS_EGRESO = {
   'Crédito Hipotecario': ['Cuota mensual'],
-  'Tarjeta (cuotas)': ['Cuota tarjeta'],
   'Servicios e Impuestos': ['Ecogas', 'Edemsa', 'Aysam', 'Inmobiliario', 'Municipalidad', 'Internet', 'Expensas', 'Seguro', 'ABL/AFIP', 'Otros'],
   Supermercado: ['Compra grande', 'Compra chica', 'Verdulería', 'Carnicería'],
   'Comida afuera': ['Restaurante', 'Delivery', 'Almuerzo trabajo', 'Café'],
-  'Ocio / Eventos': ['Bar', 'Boliche', 'Cine/Teatro', 'Eventos'],
+  'Social / Salidas': ['Juntadas/Asados', 'Salir a comer con amigos', 'Bar', 'Boliche', 'Previa'],
+  Eventos: ['Cine/Teatro', 'Recitales', 'Deportes/Cancha', 'Otros eventos'],
   Auto: ['Combustible', 'Mantenimiento/Service', 'Seguro', 'Patente', 'Impuestos', 'Lavado', 'Estacionamiento'],
   Fitness: ['Gimnasio', 'Fútbol', 'Suplementos', 'Equipamiento'],
   Salud: ['Médico/Consultas', 'Farmacia', 'Estética', 'Obra social'],
@@ -113,7 +118,7 @@ function montoEnARS(m, config) {
   return m.monto;
 }
 
-// ============ TEMA (claro/oscuro) ============
+// ============ TEMA ============
 const TEMAS = {
   claro: {
     bg: 'bg-slate-50', card: 'bg-white', cardBorder: 'border-slate-200',
@@ -138,7 +143,7 @@ export default function FinanzasApp() {
   const [presupuesto, setPresupuesto] = useState({});
   const [patrimonio, setPatrimonio] = useState({});
   const [snapshots, setSnapshots] = useState([]);
-  const [config, setConfig] = useState({ cotizacionDolar: 1400, mesActivo: mesAnio(hoy()), tema: 'claro', umbralConciliacion: 50000 });
+  const [config, setConfig] = useState({ cotizacionDolar: 1400, mesActivo: mesAnio(hoy()), tema: 'claro', umbralConciliacion: 50000, valorUVA: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -146,7 +151,7 @@ export default function FinanzasApp() {
     setPresupuesto(loadData(STORAGE_KEYS.presupuesto, {}));
     setPatrimonio(loadData(STORAGE_KEYS.patrimonio, {}));
     setSnapshots(loadData(STORAGE_KEYS.snapshots, []));
-    setConfig(loadData(STORAGE_KEYS.config, { cotizacionDolar: 1400, mesActivo: mesAnio(hoy()), tema: 'claro', umbralConciliacion: 50000 }));
+    setConfig(loadData(STORAGE_KEYS.config, { cotizacionDolar: 1400, mesActivo: mesAnio(hoy()), tema: 'claro', umbralConciliacion: 50000, valorUVA: 0 }));
     setLoading(false);
   }, []);
 
@@ -225,19 +230,14 @@ export default function FinanzasApp() {
         <div className="flex items-center justify-between">
           <h1 className={`text-lg font-bold ${t.text}`}>Finanzas Agustín</h1>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setConfig({ ...config, tema: config.tema === 'oscuro' ? 'claro' : 'oscuro' })}
-              className={`p-1.5 rounded-lg ${t.surface} ${t.surfaceText}`}
-            >
+            <button onClick={() => setConfig({ ...config, tema: config.tema === 'oscuro' ? 'claro' : 'oscuro' })} className={`p-1.5 rounded-lg ${t.surface} ${t.surfaceText}`}>
               {config.tema === 'oscuro' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <div className="flex items-center gap-1.5">
               <span className={`text-xs ${t.textMuted}`}>USD</span>
-              <input
-                type="number" inputMode="numeric" value={config.cotizacionDolar}
+              <input type="number" inputMode="numeric" value={config.cotizacionDolar}
                 onChange={(e) => setConfig({ ...config, cotizacionDolar: Number(e.target.value) })}
-                className={`w-20 px-2 py-1 text-right border rounded text-sm ${t.input}`}
-              />
+                className={`w-20 px-2 py-1 text-right border rounded text-sm ${t.input}`} />
             </div>
           </div>
         </div>
@@ -273,9 +273,9 @@ export default function FinanzasApp() {
   );
 }
 
-// ============ DASHBOARD (con selector de período) ============
+// ============ DASHBOARD ============
 function Dashboard({ movimientos, presupuesto, config, setConfig, t }) {
-  const [periodo, setPeriodo] = useState('mes'); // mes | anio | historico
+  const [periodo, setPeriodo] = useState('mes');
   const mesActivo = config.mesActivo || mesAnio(hoy());
 
   const cambiarMes = (delta) => {
@@ -299,7 +299,6 @@ function Dashboard({ movimientos, presupuesto, config, setConfig, t }) {
     return acc;
   }, [movsFiltrados, config]);
 
-  // Presupuesto: para mes usa el mes; para año suma los 12; histórico sin plan
   const presupuestoComparable = useMemo(() => {
     if (periodo === 'mes') return presupuesto[mesActivo] || {};
     if (periodo === 'anio') {
@@ -318,28 +317,29 @@ function Dashboard({ movimientos, presupuesto, config, setConfig, t }) {
   const cumplimiento = totalPlanificado > 0 ? totalEgresos / totalPlanificado : null;
   const [y, mNum] = mesActivo.split('-').map(Number);
 
-  const categoriasConDatos = Object.keys(CATEGORIAS_EGRESO).filter((cat) => (presupuestoComparable[cat] || 0) > 0 || (egresosPorCategoria[cat] || 0) > 0);
+  // Categorías con datos: incluye tanto las actuales como cualquier categoría vieja presente en los movimientos
+  const categoriasConDatos = useMemo(() => {
+    const setCats = new Set([...Object.keys(CATEGORIAS_EGRESO), ...Object.keys(egresosPorCategoria), ...Object.keys(presupuestoComparable)]);
+    return Array.from(setCats).filter((cat) => (presupuestoComparable[cat] || 0) > 0 || (egresosPorCategoria[cat] || 0) > 0);
+  }, [egresosPorCategoria, presupuestoComparable]);
 
   const tituloPeriodo = periodo === 'mes' ? `${MESES[mNum - 1]} ${y}` : periodo === 'anio' ? `Año ${y}` : 'Todo el historial';
 
   return (
     <div className="space-y-3">
-      {/* Selector de período */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-1 grid grid-cols-3 gap-1`}>
         {[{ id: 'mes', l: 'Mes' }, { id: 'anio', l: 'Año' }, { id: 'historico', l: 'Histórico' }].map((p) => (
-          <button key={p.id} onClick={() => setPeriodo(p.id)} className={`py-2 rounded-lg text-sm font-medium ${periodo === p.id ? 'bg-blue-600 text-white' : `${t.textMuted}`}`}>{p.l}</button>
+          <button key={p.id} onClick={() => setPeriodo(p.id)} className={`py-2 rounded-lg text-sm font-medium ${periodo === p.id ? 'bg-blue-600 text-white' : t.textMuted}`}>{p.l}</button>
         ))}
       </div>
 
-      {/* Navegación mes/año (solo si no es histórico) */}
-      {periodo !== 'historico' && (
+      {periodo !== 'historico' ? (
         <div className={`${t.card} rounded-xl border ${t.cardBorder} px-3 py-2.5 flex items-center justify-between`}>
           <button onClick={() => cambiarMes(periodo === 'anio' ? -12 : -1)} className={`p-2 rounded-lg ${t.textMuted}`}><ChevronLeft size={20} /></button>
           <h2 className={`text-base font-bold ${t.text}`}>{tituloPeriodo}</h2>
           <button onClick={() => cambiarMes(periodo === 'anio' ? 12 : 1)} className={`p-2 rounded-lg ${t.textMuted}`}><ChevronRight size={20} /></button>
         </div>
-      )}
-      {periodo === 'historico' && (
+      ) : (
         <div className={`${t.card} rounded-xl border ${t.cardBorder} px-3 py-2.5 text-center`}>
           <h2 className={`text-base font-bold ${t.text}`}>Todo el historial</h2>
         </div>
@@ -424,19 +424,12 @@ function KPI({ label, valor, color = 'slate', esPct = false, t }) {
 }
 
 // ============ PATRIMONIO NETO ============
-// Bienes físicos: cada uno con su valor y moneda
-const BIENES_FISICOS = [
-  { id: 'depa', nombre: 'Departamento', moneda: 'USD' },
-  { id: 'auto', nombre: 'Auto', moneda: 'USD' },
-];
-
 function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, snapshots, guardarSnapshot, agregar, t }) {
   const [msg, setMsg] = useState('');
 
   const dolar = config.cotizacionDolar || 1;
   const valorUVA = config.valorUVA || 0;
 
-  // ===== ACTIVOS =====
   const liquido = useMemo(() => CUENTAS_DEFAULT.filter((c) => c.tipo === 'liquido').reduce((s, c) => {
     const saldo = patrimonio[c.id] || 0;
     return s + (c.moneda === 'USD' ? saldo * dolar : saldo);
@@ -452,18 +445,13 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
     return s + (b.moneda === 'USD' ? valor * dolar : valor);
   }, 0), [patrimonio, dolar]);
 
-  // ===== PASIVO: deuda hipotecaria en UVAs =====
   const uvasDeuda = patrimonio['hipoteca_uvas'] || 0;
   const deudaHipotecaARS = uvasDeuda * valorUVA;
 
-  // ===== TOTALES =====
   const activosARS = liquido + invertido + bienesFisicos;
   const totalARS = activosARS - deudaHipotecaARS;
   const totalUSD = totalARS / dolar;
 
-  // ===== CONCILIACIÓN =====
-  // Solo concilia la parte FINANCIERA (líquido + invertido), que es lo que mueven los flujos.
-  // Bienes físicos y deuda no entran porque no se mueven con ingresos/egresos diarios.
   const financieroARS = liquido + invertido;
 
   const flujoNeto = useMemo(() => {
@@ -509,14 +497,12 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
     <div className="space-y-3">
       <h3 className={`text-base font-semibold ${t.text} px-1`}>Patrimonio neto</h3>
 
-      {/* Total destacado: USD y ARS */}
       <div className="bg-blue-600 rounded-xl p-4 text-center text-white">
         <div className="text-xs opacity-80">Patrimonio neto total</div>
         <div className="text-3xl font-bold mt-1">{fmtMoney(totalUSD, 'USD')}</div>
         <div className="text-sm opacity-90 mt-0.5">{fmtMoney(totalARS)}</div>
       </div>
 
-     {/* Desglose en 4: líquido, invertido, bienes, deuda */}
       <div className="grid grid-cols-2 gap-2">
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <div className={`text-xs ${t.textMuted}`}>Líquido</div>
@@ -540,7 +526,6 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
         </div>
       </div>
 
-      {/* Valor UVA */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3 flex items-center justify-between`}>
         <div>
           <div className={`text-sm font-semibold ${t.text}`}>Valor UVA</div>
@@ -551,7 +536,6 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
           placeholder="0" className={`w-24 px-2 py-1.5 text-right border rounded-lg text-sm ${t.input}`} />
       </div>
 
-      {/* Cuentas financieras */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
         <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Cuentas (líquido + invertido)</h4>
         <div className="space-y-2">
@@ -569,7 +553,6 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
         </div>
       </div>
 
-      {/* Bienes físicos */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
         <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Bienes físicos</h4>
         <p className={`text-xs ${t.textSoft} mb-2`}>Valor de mercado actual del bien</p>
@@ -588,7 +571,6 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
         </div>
       </div>
 
-      {/* Deuda hipotecaria */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
         <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Deuda hipotecaria</h4>
         <div className="flex items-center justify-between gap-2">
@@ -607,7 +589,6 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
         )}
       </div>
 
-      {/* Conciliación */}
       <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
         <div className="flex items-center justify-between mb-2">
           <h4 className={`text-sm font-semibold ${t.text}`}>Control / Conciliación</h4>
@@ -659,7 +640,6 @@ function Patrimonio({ patrimonio, actualizar, config, setConfig, movimientos, sn
       </button>
       {msg && <div className="text-center text-sm font-medium text-green-600">{msg}</div>}
 
-      {/* Evolución */}
       {snapshots.length > 0 && (
         <div className={`${t.card} rounded-xl border ${t.cardBorder} p-3`}>
           <h4 className={`text-sm font-semibold ${t.text} mb-2`}>Evolución patrimonial</h4>
@@ -847,17 +827,12 @@ function Movimientos({ movimientos, eliminar, actualizar, config, t }) {
     .sort((a, b) => b.fecha.localeCompare(a.fecha)), [movimientos, filtroTipo, filtroMes, filtroCategoria, filtroSubcategoria, filtroMedioPago]);
 
   const mesesDisponibles = useMemo(() => Array.from(new Set(movimientos.map((m) => mesAnio(m.fecha)))).sort().reverse(), [movimientos]);
-
-  // Categorías presentes en los movimientos cargados
   const categoriasDisponibles = useMemo(() => Array.from(new Set(movimientos.map((m) => m.categoria).filter(Boolean))).sort(), [movimientos]);
-
-  // Subcategorías: dependen de la categoría elegida (si hay una)
   const subcategoriasDisponibles = useMemo(() => {
     const base = filtroCategoria === 'todas' ? movimientos : movimientos.filter((m) => m.categoria === filtroCategoria);
     return Array.from(new Set(base.map((m) => m.subcategoria).filter(Boolean))).sort();
   }, [movimientos, filtroCategoria]);
 
-  // Total de lo filtrado (en ARS), útil para revisar gastos puntuales
   const totalFiltrado = useMemo(() => filtrados.reduce((s, m) => {
     if (m.tipo === 'egreso') return s + montoEnARS(m, config);
     if (m.tipo === 'ingreso') return s - montoEnARS(m, config);
@@ -941,17 +916,60 @@ function EditarModal({ mov, onClose, onSave, t }) {
   const [monto, setMonto] = useState(mov.monto);
   const [descripcion, setDescripcion] = useState(mov.descripcion || '');
   const [fecha, setFecha] = useState(mov.fecha);
+  const esTransferencia = mov.tipo === 'transferencia';
+  const categorias = mov.tipo === 'ingreso' ? CATEGORIAS_INGRESO : CATEGORIAS_EGRESO;
+  const [categoria, setCategoria] = useState(mov.categoria || '');
+  const [subcategoria, setSubcategoria] = useState(mov.subcategoria || '');
+
+  // Subcategorías disponibles para la categoría elegida
+  const subcats = categorias[categoria] || [];
+
+  const handleCategoria = (nuevaCat) => {
+    setCategoria(nuevaCat);
+    const nuevasSub = categorias[nuevaCat] || [];
+    // Si la subcategoría actual no existe en la nueva categoría, tomo la primera
+    if (!nuevasSub.includes(subcategoria)) setSubcategoria(nuevasSub[0] || '');
+  };
+
+  const guardar = () => {
+    const cambios = { monto: Number(monto), descripcion, fecha };
+    if (!esTransferencia) {
+      cambios.categoria = categoria;
+      cambios.subcategoria = subcategoria;
+    }
+    onSave(cambios);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-3" onClick={onClose}>
-      <div className={`${t.card} rounded-2xl w-full max-w-md p-4 space-y-3`} onClick={(e) => e.stopPropagation()}>
+      <div className={`${t.card} rounded-2xl w-full max-w-md p-4 space-y-3 max-h-[90vh] overflow-y-auto`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className={`text-base font-semibold ${t.text}`}>Editar movimiento</h3>
           <button onClick={onClose} className={t.textSoft}><X size={20} /></button>
         </div>
         <Field label="Monto" t={t}><input type="number" inputMode="decimal" value={monto} onChange={(e) => setMonto(e.target.value)} className={`w-full px-3 py-2.5 border rounded-lg text-lg font-semibold ${t.input}`} /></Field>
         <Field label="Fecha" t={t}><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`w-full px-3 py-2.5 border rounded-lg ${t.input}`} /></Field>
+        {!esTransferencia && (
+          <>
+            <Field label="Categoría" t={t}>
+              <select value={categoria} onChange={(e) => handleCategoria(e.target.value)} className={`w-full px-3 py-2.5 border rounded-lg ${t.input}`}>
+                {/* Si la categoría del movimiento es vieja y ya no existe, la muestro igual para no perderla */}
+                {!Object.keys(categorias).includes(categoria) && categoria && <option value={categoria}>{categoria} (actual)</option>}
+                {Object.keys(categorias).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+            {subcats.length > 0 && (
+              <Field label="Subcategoría" t={t}>
+                <select value={subcategoria} onChange={(e) => setSubcategoria(e.target.value)} className={`w-full px-3 py-2.5 border rounded-lg ${t.input}`}>
+                  {!subcats.includes(subcategoria) && subcategoria && <option value={subcategoria}>{subcategoria} (actual)</option>}
+                  {subcats.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+            )}
+          </>
+        )}
         <Field label="Descripción" t={t}><input type="text" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={`w-full px-3 py-2.5 border rounded-lg ${t.input}`} /></Field>
-        <button onClick={() => onSave({ monto: Number(monto), descripcion, fecha })} className="w-full bg-blue-600 active:bg-blue-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"><Check size={18} /> Guardar</button>
+        <button onClick={guardar} className="w-full bg-blue-600 active:bg-blue-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"><Check size={18} /> Guardar</button>
       </div>
     </div>
   );
@@ -1110,7 +1128,7 @@ function Exportar({ movimientos, presupuesto, config, patrimonio, snapshots, onB
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(seguimiento), 'Seguimiento');
 
     const presData = [['Categoría', ...meses, 'Anual']];
-    categorias.forEach((cat) => { const row = [cat]; let anual = 0; meses.forEach((m) => { const v = (presupuesto[m] || {})[cat] || 0; row.push(v); anual += v; }); row.push(anual); presData.push(row); });
+    categorias.forEach((cat) => { const row = [cat]; let an = 0; meses.forEach((m) => { const v = (presupuesto[m] || {})[cat] || 0; row.push(v); an += v; }); row.push(an); presData.push(row); });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(presData), 'Presupuesto');
 
     const resumen = {};
@@ -1119,15 +1137,16 @@ function Exportar({ movimientos, presupuesto, config, patrimonio, snapshots, onB
     Object.entries(resumen).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => resumenData.push([k, v]));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumenData), 'Resumen Cat');
 
-    // Hoja patrimonio
     const patData = [['Cuenta', 'Moneda', 'Tipo', 'Saldo', 'Saldo ARS']];
     CUENTAS_DEFAULT.forEach((c) => { const saldo = patrimonio[c.id] || 0; patData.push([c.nombre, c.moneda, c.tipo, saldo, c.moneda === 'USD' ? saldo * config.cotizacionDolar : saldo]); });
+    BIENES_FISICOS.forEach((b) => { const v = patrimonio[b.id] || 0; patData.push([b.nombre, b.moneda, 'bien fisico', v, b.moneda === 'USD' ? v * config.cotizacionDolar : v]); });
+    const uvas = patrimonio['hipoteca_uvas'] || 0;
+    patData.push(['Deuda hipoteca', 'UVA', 'pasivo', uvas, -(uvas * (config.valorUVA || 0))]);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(patData), 'Patrimonio');
 
-    // Hoja evolución
     if (snapshots.length > 0) {
-      const snapData = [['Mes', 'Fecha', 'Total ARS', 'Total USD']];
-      snapshots.forEach((s) => snapData.push([s.mes, s.fecha, s.totalARS, s.totalUSD]));
+      const snapData = [['Mes', 'Fecha', 'Total ARS', 'Total USD', 'Financiero ARS']];
+      snapshots.forEach((s) => snapData.push([s.mes, s.fecha, s.totalARS, s.totalUSD, s.financieroARS || '']));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(snapData), 'Evolución Patrim');
     }
 
@@ -1146,7 +1165,7 @@ function Exportar({ movimientos, presupuesto, config, patrimonio, snapshots, onB
           <li>• <strong>Seguimiento</strong>: Plan vs Real por mes</li>
           <li>• <strong>Presupuesto</strong>: plan anual</li>
           <li>• <strong>Resumen Cat</strong>: total por subcategoría</li>
-          <li>• <strong>Patrimonio</strong>: saldos por cuenta</li>
+          <li>• <strong>Patrimonio</strong>: cuentas, bienes y deuda</li>
           <li>• <strong>Evolución</strong>: histórico de patrimonio</li>
         </ul>
       </div>
