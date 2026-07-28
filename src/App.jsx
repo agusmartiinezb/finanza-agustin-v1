@@ -148,7 +148,18 @@ export default function FinanzasApp() {
 
   useEffect(() => {
     setMovimientos(loadData(STORAGE_KEYS.movimientos, []));
-    setPresupuesto(loadData(STORAGE_KEYS.presupuesto, {}));
+    // Limpio del presupuesto cualquier categoría que ya no exista en la lista actual
+    const presupuestoCargado = loadData(STORAGE_KEYS.presupuesto, {});
+    const catsValidas = Object.keys(CATEGORIAS_EGRESO);
+    const presupuestoLimpio = {};
+    Object.keys(presupuestoCargado).forEach((mes) => {
+      const mesLimpio = {};
+      Object.keys(presupuestoCargado[mes] || {}).forEach((cat) => {
+        if (catsValidas.includes(cat)) mesLimpio[cat] = presupuestoCargado[mes][cat];
+      });
+      presupuestoLimpio[mes] = mesLimpio;
+    });
+    setPresupuesto(presupuestoLimpio);
     setPatrimonio(loadData(STORAGE_KEYS.patrimonio, {}));
     setSnapshots(loadData(STORAGE_KEYS.snapshots, []));
     setConfig(loadData(STORAGE_KEYS.config, { cotizacionDolar: 1400, mesActivo: mesAnio(hoy()), tema: 'claro', umbralConciliacion: 50000, valorUVA: 0 }));
@@ -1016,7 +1027,8 @@ function PresupuestoMobile({ presupuesto, actualizar, onBack, t }) {
   };
   const [y, mNum] = mesSel.split('-').map(Number);
   const datosMes = presupuesto[mesSel] || {};
-  const totalMes = Object.values(datosMes).reduce((s, v) => s + (v || 0), 0);
+  // Total: solo categorías que existen HOY en la lista (ignora residuales de categorías viejas)
+  const totalMes = Object.keys(CATEGORIAS_EGRESO).reduce((s, cat) => s + (datosMes[cat] || 0), 0);
   const copiarMesAnterior = () => {
     const [yy, mm] = mesSel.split('-').map(Number);
     const dPrev = new Date(yy, mm - 2, 1);
@@ -1121,7 +1133,7 @@ function Exportar({ movimientos, presupuesto, config, patrimonio, snapshots, onB
     });
     const totalRow = ['TOTAL'];
     meses.forEach((m) => {
-      const tp = Object.values(presupuesto[m] || {}).reduce((s, v) => s + v, 0);
+      const tp = Object.keys(CATEGORIAS_EGRESO).reduce((s, cat) => s + ((presupuesto[m] || {})[cat] || 0), 0);
       const tr = movimientos.filter((mv) => mv.tipo === 'egreso' && mesAnio(mv.fecha) === m).reduce((s, mv) => s + montoEnARS(mv, config), 0);
       totalRow.push(tp, tr, tp > 0 ? tr / tp : 0);
     });
