@@ -317,10 +317,11 @@ function Dashboard({ movimientos, presupuesto, config, setConfig, t }) {
   const cumplimiento = totalPlanificado > 0 ? totalEgresos / totalPlanificado : null;
   const [y, mNum] = mesActivo.split('-').map(Number);
 
-  // Categorías con datos: incluye tanto las actuales como cualquier categoría vieja presente en los movimientos
+  // Categorías con datos: solo las que existen HOY en la lista de categorías.
+  // Esto evita que categorías viejas (renombradas/eliminadas) sigan apareciendo
+  // por tener presupuesto o movimientos residuales.
   const categoriasConDatos = useMemo(() => {
-    const setCats = new Set([...Object.keys(CATEGORIAS_EGRESO), ...Object.keys(egresosPorCategoria), ...Object.keys(presupuestoComparable)]);
-    return Array.from(setCats).filter((cat) => (presupuestoComparable[cat] || 0) > 0 || (egresosPorCategoria[cat] || 0) > 0);
+    return Object.keys(CATEGORIAS_EGRESO).filter((cat) => (presupuestoComparable[cat] || 0) > 0 || (egresosPorCategoria[cat] || 0) > 0);
   }, [egresosPorCategoria, presupuestoComparable]);
 
   const tituloPeriodo = periodo === 'mes' ? `${MESES[mNum - 1]} ${y}` : periodo === 'anio' ? `Año ${y}` : 'Todo el historial';
